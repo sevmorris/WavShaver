@@ -31,9 +31,9 @@ struct HelpView: View {
                     text("Example: episode-01-44kshaved-1dB.wav")
                 }
                 section("Processing Pipeline") {
-                    text("WavShaver uses FFmpeg with a simple two-step pipeline:")
+                    text("WavShaver uses FFmpeg with a simple pipeline:")
                     numberedList([
-                        "Resampling to the target sample rate.",
+                        "Resampling to the target sample rate (skipped if already matching).",
                         "Brick-wall limiting with 2x oversampled true peak control."
                     ])
                     text("Output format: 24-bit WAV")
