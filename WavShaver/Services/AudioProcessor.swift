@@ -69,22 +69,32 @@ actor AudioProcessor {
         let work = try makeTemp(prefix: "wavshaver_\(rateTag)_")
         defer { try? fm.removeItem(at: work) }
 
-        // Detect input channel count
+        // Detect input channel count and sample rate
         let probeArgs = [
             "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=channels",
+            "-show_entries", "stream=channels,sample_rate",
             "-of", "csv=p=0", input.path
         ]
-        let channelStr = try await runFFmpegCapture(exe: tools.ffprobe, args: probeArgs).trimmingCharacters(in: .whitespacesAndNewlines)
-        let channels = Int(channelStr) ?? 2
+        let probeOutput = try await runFFmpegCapture(exe: tools.ffprobe, args: probeArgs).trimmingCharacters(in: .whitespacesAndNewlines)
+        let probeFields = probeOutput.split(separator: ",")
+        let inputSampleRate = probeFields.count >= 2 ? Int(probeFields[0]) ?? sr : sr
+        let channels = probeFields.count >= 2 ? Int(probeFields[1]) ?? 2 : 2
 
-        // Step 1: Resample to target sample rate
-        let midURL = work.appendingPathComponent("\(stem)_\(rateTag)24.wav")
-        try await runFFmpeg(exe: tools.ffmpeg, args: [
-            "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", input.path, "-af", "aresample=\(sr)",
-            "-c:a", "pcm_s24le", "-ar", "\(sr)", "-ac", "\(channels)", midURL.path
-        ])
+        let needsResample = inputSampleRate != sr
+
+        // Step 1: Resample to target sample rate (skip if already matching)
+        let limiterInput: URL
+        if needsResample {
+            let midURL = work.appendingPathComponent("\(stem)_\(rateTag)24.wav")
+            try await runFFmpeg(exe: tools.ffmpeg, args: [
+                "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                "-i", input.path, "-af", "aresample=\(sr)",
+                "-c:a", "pcm_s24le", "-ar", "\(sr)", "-ac", "\(channels)", midURL.path
+            ])
+            limiterInput = midURL
+        } else {
+            limiterInput = input
+        }
 
         try Task.checkCancellation()
 
@@ -102,7 +112,7 @@ actor AudioProcessor {
 
         try await runFFmpeg(exe: tools.ffmpeg, args: [
             "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", midURL.path, "-af", limiterAf,
+            "-i", limiterInput.path, "-af", limiterAf,
             "-c:a", "pcm_s24le", "-ar", "\(sr)", "-ac", "\(channels)", "-f", "wav", tmpURL.path
         ])
 
